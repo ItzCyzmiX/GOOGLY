@@ -111,11 +111,11 @@ def main():
                     final_data = {
                         "title": title,
                         "url": url,
-                        "keywords": weight_map[:20],
+                        "keywords": weight_map,
                         "links": links
                     } 
+                    
                     try:
-                        # Insert data into Supabase
                         logger.info(f"Inserting data into Supabase for {url}...")   
                         response = (    
                             supabase.table("links")
@@ -123,9 +123,9 @@ def main():
                                 .execute()
                         )  
                     except Exception as e:
-                        logger.error(f"Error inserting data into Supabase: {response.error}")
-                    finally:                           
-                        logger.info(f"Data successfully inserted into Supabase for {url}")
+                        logger.error(f"Error inserting data into Supabase: {e}")
+                    finally:
+                        logger.info(f"Data inserted successfully for {url}.")
                         
                 except Exception as e:
                     logger.error(f"Error visiting {url}: {e}")
