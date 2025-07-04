@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 parent_url = ""
 queue = [[
-    "https://developer.mozilla.org",
-    "https://github.com/explore",
     "https://dev.to",
     "https://www.reddit.com/r/programming",
     "https://hackernoon.com",
@@ -113,18 +111,22 @@ def main():
                     final_data = {
                         "title": title,
                         "url": url,
-                        "keywords": sorted_weight_map[:20],
+                        "keywords": weight_map[:20],
                         "links": links
-                    }    
-                    response = (    
-                        supabase.table("links")
-                            .insert(final_data)    
-                            .execute()
-                    )  
-                    if response.error:
+                    } 
+                    try:
+                        # Insert data into Supabase
+                        logger.info(f"Inserting data into Supabase for {url}...")   
+                        response = (    
+                            supabase.table("links")
+                                .insert(final_data)    
+                                .execute()
+                        )  
+                    except Exception as e:
                         logger.error(f"Error inserting data into Supabase: {response.error}")
-                    else:
+                    finally:                           
                         logger.info(f"Data successfully inserted into Supabase for {url}")
+                        
                 except Exception as e:
                     logger.error(f"Error visiting {url}: {e}")
                 finally:
