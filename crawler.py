@@ -60,7 +60,7 @@ def main():
                     content = soup.getText() 
                     
                     translator = str.maketrans('', '', string.punctuation + string.whitespace + '–—•·“”‘’…’‘’')
-                    content_no_symbols = ''.join(char if char.isalnum() or char.isspace() else ' ' for char in content)
+                    content_no_symbols = ''.join(char if char.isalnum() or char.isspace() and len(char)>=3 else ' ' for char in content)
                     words = content_no_symbols.split()
                     
                     weight_map = {}
