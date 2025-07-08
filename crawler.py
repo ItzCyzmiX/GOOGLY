@@ -47,25 +47,14 @@ def clean_content(text):
     return ''.join(char if char in allowed else ' ' for char in text)
 
 def extract_keywords(doc, filler_words, stopwords):
-    words = [
-        token.text.lower()
-        for token in doc
-        if token.pos_ in {'NOUN', 'PROPN', 'ADJ'} and not token.is_stop
-    ]
-    return [w for w in words if w not in filler_words and w not in stopwords]
+    word_counts = {}
+    for token in doc:
+        if token.pos_ in {'NOUN', 'PROPN', 'ADJ'} and not token.is_stop:
+            w = token.lemma_.lower()
+            if w not in filler_words and w not in stopwords:
+                word_counts[w] = word_counts.get(w, 0) + 1
+    return [[word, count] for word, count in word_counts.items() if count > 5]
 
-def compute_tfidf(words, global_word_counts, doc_count):
-    tf_map = {}
-    for word in words:
-        tf_map[word] = tf_map.get(word, 0) + 1
-        global_word_counts[word] = global_word_counts.get(word, 0) + 1
-
-    idf_map = {
-        word: math.log(doc_count / global_word_counts[word]) if global_word_counts[word] > 0 else 0
-        for word in tf_map
-    }
-    weight_map = {word: min(tf_map[word] * idf_map[word], 50) for word in tf_map}
-    return weight_map
 
 def crawl():
     supabase = load_supabase_client()
@@ -73,59 +62,72 @@ def crawl():
     stopwords = set(nlp.Defaults.stop_words)
     visited = set()
     queue = [START_URLS]
-    global_word_counts = {}
-    doc_count = 0
+
+    words={}
 
     for i in range(MAX_ITERATIONS):
-        if i >= len(queue):
-            logger.info("No more URLs to visit.")
+        if visited.__len__() >= 500:
+            logger.info("Visited 500 URLs, stopping crawl.")
             break
-
-        logger.info(f"Iteration {i}: Processing URLs in the queue...")
         for url in queue[i]:
+            
+            print(url)
             if url in visited:
                 continue
-            logger.info(f"Visiting: {url}")
-            doc_count += 1
+            visited.add(url)
+            logger.info(f"Crawling: {url}")
+            
             try:
-                response = requests.get(url)
-                soup = bs4.BeautifulSoup(response.text, 'lxml')
-                content = clean_content(soup.getText())
-                doc = nlp(content)
-                keywords = extract_keywords(doc, FILLER_WORDS, stopwords)
-                weight_map = compute_tfidf(keywords, global_word_counts, doc_count)
-                sorted_keywords = sorted(weight_map.items(), key=lambda x: x[1], reverse=True)[:10]
-                keyword_dict = dict(sorted_keywords)
-
-                title = soup.title.string if soup.title else ''
-                links = [
-                    [link['href'], url]
-                    for link in soup.find_all('a', href=True)
-                    if link['href'].startswith('http') and link['href'] not in visited
-                ]
-                queue.append([l[0] for l in links])
-
-                logger.info(f"Top words in {url}: {keyword_dict}")
-                logger.info(f"Found {len(links)} new links.")
-
-                final_data = {
-                    "title": title,
-                    "url": url,
-                    "keywords": keyword_dict,
-                    "links": links
-                }
-                try:
-                    logger.info(f"Inserting data into Supabase for {url}...")
-                    supabase.table("links").insert(final_data).execute()
-                except Exception as e:
-                    logger.error(f"Error inserting data into Supabase: {e}")
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+            except requests.RequestException as e:
+                logger.error(f"Failed to fetch {url}: {e}")
+                continue
+            
+            soup = bs4.BeautifulSoup(response.text, 'html.parser')
+            content = soup.get_text()
+            cleaned_content = clean_content(content)
+            
+            if not cleaned_content.strip():
+                continue
+            
+            doc = nlp(cleaned_content)
+            keywords = extract_keywords(doc, FILLER_WORDS, stopwords)
+            
+            if not keywords:
+                continue
+            
+            for word in keywords:
+                if words.get(word[0]):
+                    words[word[0]].append([url, word[1]])
                 else:
-                    logger.info(f"Data inserted successfully for {url}.")
-            except Exception as e:
-                logger.error(f"Error visiting {url}: {e}")
-            finally:
-                visited.add(url)
-                logger.info(f"Finished visiting: {url}")
+                    words[word[0]] = [[url, word[1]]]
+            
+            links = soup.find_all('a', href=True)    
+            new_urls = set()
+            for link in links:
+                href = link['href']
+                if href.startswith('http') and href not in visited:
+                    new_urls.add(href)  
+            
+            if new_urls:
+                queue.append(list(new_urls))
+            
+            
+    for word in words:
+        try:
+            for a in words.get(word):
+                res = supabase.table("words").insert({
+                    "word": word,
+                    "url": a[0],
+                    "score": a[1]
+                }).execute()
+
+        except Exception as e:
+            logger.error(f"Exception while inserting word {word}: {e}")
+        finally:
+            logger.info(f"Finished processing word: {word}")
+
 
 if __name__ == "__main__":
     crawl()
